@@ -1,0 +1,146 @@
+version: "3.7"
+
+
+services:
+
+    line-provider:
+        image: line-provider
+#        build:
+#            context: ./line-provider
+#            dockerfile: docker/Dockerfile
+        depends_on:
+            - pg-line
+            - kafka
+            - kafka-ui
+            - redis
+            - zookeeper
+        deploy:
+            replicas: 2
+            restart_policy:
+                condition: on-failure
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://line-provider:8000/health"]
+            interval: 60s
+            timeout: 10s
+            retries: 3
+        ports:
+          - "8000-8001:8000"
+        env_file:
+            - .env_bet_maker
+
+    bet-maker:
+        image: bet-maker
+#        build:
+#            context: ./bet-maker
+#            dockerfile: docker/Dockerfile
+        depends_on:
+            - pg-bet
+            - redis
+            - kafka
+            - kafka-ui
+            - zookeeper
+        deploy:
+            replicas: 2
+            restart_policy:
+                condition: on-failure
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://bet-maker:8090/health"]
+            interval: 60s
+            timeout: 10s
+            retries: 3
+        ports:
+          - "8090-8091:8090"
+        env_file:
+            - .env_bet_maker
+
+    redis:
+        image: redis
+        ports:
+            - "6379:6379"
+        volumes:
+            - redis_data:/data
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 60s
+            timeout: 10s
+            retries: 3
+
+    pg-line:
+        image: postgres:16.2-alpine
+        ports:
+            - "5432:5432"
+        volumes:
+            - postgres_line_data:/var/lib/postgresql/data
+        env_file:
+            -   .env
+        healthcheck:
+            test: ["CMD", "pg_isready", "-U", "line"]
+            interval: 60s
+            timeout: 10s
+            retries: 3
+        restart: always
+
+    pg-bet:
+        image: postgres:16.2-alpine
+        ports:
+            - "5433:5432"
+        volumes:
+            - postgres_bet_data:/var/lib/postgresql/data
+        env_file:
+            -   bet-maker/.env
+        healthcheck:
+            test: ["CMD", "pg_isready", "-U", "bet"]
+            interval: 60s
+            timeout: 10s
+            retries: 3
+        restart: always
+    zookeeper:
+        container_name: zookeeper
+        hostname: zookeeper
+        image: confluentinc/cp-zookeeper:7.3.0
+        ports:
+            - "2181:2181"
+        environment:
+            ZOOKEEPER_CLIENT_PORT: 2181
+            ZOOKEEPER_TICK_TIME: 2000
+        healthcheck:
+            test: ["CMD", "zookeeper-healthcheck"]
+            interval: 60s
+            timeout: 10s
+            retries: 3
+    kafka:
+        image: confluentinc/cp-kafka:7.3.0
+        ports:
+            - "9092:9092"
+        container_name: kafka
+        hostname: kafka
+        environment:
+            KAFKA_BROKER_ID: 1
+            KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+            KAFKA_LISTENERS: PLAINTEXT://:9092
+            KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+            KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+        healthcheck:
+            test: ["CMD", "kafka-broker-healthcheck"]
+            interval: 60s
+            timeout: 10s
+            retries: 3
+        depends_on:
+            - zookeeper
+
+    kafka-ui:
+        image: provectuslabs/kafka-ui:latest
+        ports:
+            - "9090:8080"
+        environment:
+            KAFKA_CLUSTERS_0_NAME: local
+            KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+        depends_on:
+            - kafka
+volumes:
+    postgres_line_data:
+        driver: local
+    postgres_bet_data:
+        driver: local
+    redis_data:
+        driver: local
